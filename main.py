@@ -6,14 +6,36 @@ from gmail_sender import send_email
 # CONFIGURAÇÕES GERAIS
 # =========================================
 DEST_EMAIL = "seu_email@gmail.com"
-ALERT_THRESHOLD_PCT = 0        # 0 = abaixo do preço alvo
-# exemplo: -5 = só alerta se cair mais de 5%
+
+# Filtro inteligente
+MIN_ALERT_PCT = 3      # mínimo % abaixo do alvo para alertar
+MAX_ALERT_PCT = 40     # máximo % abaixo do alvo (ignora quedas muito grandes)
+
 # =========================================
 
 
 def format_currency(value, currency):
     symbol = "R$" if currency.upper() == "BRL" else "$"
     return f"{symbol}{value:,.2f}"
+
+
+def variation_style(diff_pct):
+    """
+    Define cor e ícone conforme intensidade da queda
+    """
+    if diff_pct <= -20:
+        return "#b00020", "⬇⬇"
+    elif diff_pct <= -10:
+        return "#d35400", "⬇"
+    else:
+        return "#e67e22", "⬇"
+
+
+def yahoo_link(symbol):
+    """
+    Gera link direto para o ativo no Yahoo Finance
+    """
+    return f"https://finance.yahoo.com/quote/{symbol}"
 
 
 print("Iniciando análise dos ativos...\n")
@@ -43,33 +65,43 @@ for _, row in df.iterrows():
         f"{symbol} | alvo={target:.2f} | atual={current:.2f} | var={diff_pct:.2f}%"
     )
 
-    if diff_pct < ALERT_THRESHOLD_PCT:
+    # ========= FILTRO INTELIGENTE =========
+    if -MAX_ALERT_PCT <= diff_pct <= -MIN_ALERT_PCT:
         alerts.append({
             "symbol": symbol,
             "currency": currency,
             "target": target,
             "current": current,
-            "diff_pct": diff_pct
+            "diff_pct": diff_pct,
+            "link": yahoo_link(symbol)
         })
 
 print(f"\nTotal de alertas encontrados: {len(alerts)}")
 
 # ---------- SE NÃO HOUVER ALERTAS ----------
 if not alerts:
-    print("Nenhum ativo abaixo do critério. E-mail não enviado.")
+    print("Nenhum ativo atende ao critério. E-mail não enviado.")
     exit()
 
 # ---------- HTML DO E-MAIL ----------
 html = """
-<h2 style="font-family:Arial;">📉 Alerta diário de preços</h2>
+<h2 style="font-family:Arial;margin-bottom:10px;">
+📉 Alerta diário de preços
+</h2>
+
+<p style="font-family:Arial;font-size:13px;color:#555;">
+Ativos negociados abaixo do preço alvo dentro do critério definido.
+Clique no ticker para abrir no Yahoo Finance.
+</p>
 
 <table style="
     font-family:Arial;
     border-collapse:collapse;
     width:100%;
-    max-width:700px;
+    max-width:740px;
+    font-size:14px;
 ">
-  <tr style="background-color:#222;color:white;">
+  <tr style="background-color:#1f2933;color:white;">
     <th align="left" style="padding:8px;">Ativo</th>
     <th align="right" style="padding:8px;">Preço Alvo</th>
     <th align="right" style="padding:8px;">Preço Atual</th>
@@ -78,24 +110,35 @@ html = """
 """
 
 for a in alerts:
-    cor = "#b00020" if a["diff_pct"] < -10 else "#d35400"
+    cor, seta = variation_style(a["diff_pct"])
 
     html += f"""
-    <tr style="border-bottom:1px solid #ddd;">
-      <td style="padding:6px;"><b>{a['symbol']}</b></td>
-      <td align="right" style="padding:6px;">
+    <tr style="border-bottom:1px solid #e5e7eb;">
+      <td style="padding:8px;">
+        <a href="{a['link']}" target="_blank"
+           style="color:#2563eb;text-decoration:none;font-weight:bold;">
+           {a['symbol']}
+        </a>
+      </td>
+      <td align="right" style="padding:8px;">
         {format_currency(a['target'], a['currency'])}
       </td>
-      <td align="right" style="padding:6px;">
+      <td align="right" style="padding:8px;">
         {format_currency(a['current'], a['currency'])}
       </td>
-      <td align="right" style="padding:6px;color:{cor};">
-        <b>{a['diff_pct']:.2f}%</b>
+      <td align="right" style="padding:8px;color:{cor};">
+        <b>{seta} {a['diff_pct']:.2f}%</b>
       </td>
     </tr>
     """
 
-html += "</table>"
+html += f"""
+</table>
+
+<p style="font-family:Arial;font-size:12px;color:#777;margin-top:12px;">
+Critério: entre -{MIN_ALERT_PCT}% e -{MAX_ALERT_PCT}% em relação ao preço alvo.
+</p>
+"""
 
 # ---------- ENVIO VIA GMAIL API ----------
 print("\nEnviando e-mail via Gmail API...")
