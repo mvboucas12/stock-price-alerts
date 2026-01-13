@@ -1,14 +1,32 @@
 import base64
+import json
+import os
 from email.mime.text import MIMEText
+
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
-import os
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
+
+def load_secret_file(env_var, filename):
+    if os.path.exists(filename):
+        return
+
+    content = os.getenv(env_var)
+    if not content:
+        return
+
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
 def get_gmail_service():
+    load_secret_file("GMAIL_CREDENTIALS_JSON", "credentials.json")
+    load_secret_file("GMAIL_TOKEN_JSON", "token.json")
+
     creds = None
 
     if os.path.exists("token.json"):
@@ -27,6 +45,7 @@ def get_gmail_service():
             token.write(creds.to_json())
 
     return build("gmail", "v1", credentials=creds)
+
 
 def send_email(subject, html_body, to_email):
     service = get_gmail_service()
