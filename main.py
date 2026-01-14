@@ -8,8 +8,8 @@ from gmail_sender import send_email
 DEST_EMAIL = "seu_email@gmail.com"
 
 # Filtro inteligente
-MIN_ALERT_PCT = 3      # mínimo % abaixo do alvo para alertar
-MAX_ALERT_PCT = 40     # máximo % abaixo do alvo (ignora quedas muito grandes)
+MIN_ALERT_PCT = 3      # mínimo % abaixo do alvo
+MAX_ALERT_PCT = 40     # máximo % abaixo do alvo
 
 # =========================================
 
@@ -20,9 +20,6 @@ def format_currency(value, currency):
 
 
 def variation_style(diff_pct):
-    """
-    Define cor e ícone conforme intensidade da queda
-    """
     if diff_pct <= -20:
         return "#b00020", "⬇⬇"
     elif diff_pct <= -10:
@@ -32,13 +29,12 @@ def variation_style(diff_pct):
 
 
 def yahoo_link(symbol):
-    """
-    Gera link direto para o ativo no Yahoo Finance
-    """
     return f"https://finance.yahoo.com/quote/{symbol}"
 
 
-print("Iniciando análise dos ativos...\n")
+print("\n==============================")
+print("Iniciando análise dos ativos")
+print("==============================\n")
 
 # ---------- LER CARTEIRA ----------
 df = pd.read_csv("portfolio.csv")
@@ -55,8 +51,10 @@ for _, row in df.iterrows():
 
     try:
         current = ticker.fast_info["last_price"]
+        if current is None:
+            raise ValueError("Preço retornado como None")
     except Exception as e:
-        print(f"{symbol} | erro ao obter preço: {e}")
+        print(f"{symbol} | ERRO: preço não disponível ({e})")
         continue
 
     diff_pct = (current - target) / target * 100
@@ -65,22 +63,36 @@ for _, row in df.iterrows():
         f"{symbol} | alvo={target:.2f} | atual={current:.2f} | var={diff_pct:.2f}%"
     )
 
-    # ========= FILTRO INTELIGENTE =========
-    if -MAX_ALERT_PCT <= diff_pct <= -MIN_ALERT_PCT:
-        alerts.append({
-            "symbol": symbol,
-            "currency": currency,
-            "target": target,
-            "current": current,
-            "diff_pct": diff_pct,
-            "link": yahoo_link(symbol)
-        })
+    # ========= DEBUG DO FILTRO =========
+    if current > target:
+        print(f"  → IGNORADO: acima do preço alvo\n")
+        continue
+
+    if diff_pct > -MIN_ALERT_PCT:
+        print(f"  → IGNORADO: queda menor que {MIN_ALERT_PCT}%\n")
+        continue
+
+    if diff_pct < -MAX_ALERT_PCT:
+        print(f"  → IGNORADO: queda maior que {MAX_ALERT_PCT}%\n")
+        continue
+
+    # ========= PASSOU EM TODAS AS REGRAS =========
+    print("  → OK: ALERTA GERADO\n")
+
+    alerts.append({
+        "symbol": symbol,
+        "currency": currency,
+        "target": target,
+        "current": current,
+        "diff_pct": diff_pct,
+        "link": yahoo_link(symbol)
+    })
 
 print(f"\nTotal de alertas encontrados: {len(alerts)}")
 
 # ---------- SE NÃO HOUVER ALERTAS ----------
 if not alerts:
-    print("Nenhum ativo atende ao critério. E-mail não enviado.")
+    print("\nNenhum ativo atende ao critério. E-mail não enviado.")
     exit()
 
 # ---------- HTML DO E-MAIL ----------
@@ -90,7 +102,7 @@ html = """
 </h2>
 
 <p style="font-family:Arial;font-size:13px;color:#555;">
-Ativos negociados abaixo do preço alvo dentro do critério definido.
+Ativos abaixo do preço alvo conforme critério definido.
 Clique no ticker para abrir no Yahoo Finance.
 </p>
 
@@ -140,7 +152,7 @@ Critério: entre -{MIN_ALERT_PCT}% e -{MAX_ALERT_PCT}% em relação ao preço al
 </p>
 """
 
-# ---------- ENVIO VIA GMAIL API ----------
+# ---------- ENVIO ----------
 print("\nEnviando e-mail via Gmail API...")
 
 send_email(
