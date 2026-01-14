@@ -10,7 +10,6 @@ DEST_EMAIL = "seu_email@gmail.com"
 # Filtro inteligente
 MIN_ALERT_PCT = 3      # mínimo % abaixo do alvo
 MAX_ALERT_PCT = 40     # máximo % abaixo do alvo
-
 # =========================================
 
 
@@ -32,6 +31,32 @@ def yahoo_link(symbol):
     return f"https://finance.yahoo.com/quote/{symbol}"
 
 
+def get_current_price(ticker, symbol):
+    """
+    Tenta obter o preço atual de forma robusta:
+    1) fast_info
+    2) history (fallback)
+    """
+    # --- Tentativa 1: fast_info ---
+    try:
+        price = ticker.fast_info.get("last_price")
+        if price is not None:
+            return float(price)
+    except Exception:
+        pass
+
+    # --- Tentativa 2: history ---
+    try:
+        hist = ticker.history(period="1d")
+        if not hist.empty:
+            return float(hist["Close"].iloc[-1])
+    except Exception:
+        pass
+
+    print(f"{symbol} | ERRO: preço indisponível via fast_info e history")
+    return None
+
+
 print("\n==============================")
 print("Iniciando análise dos ativos")
 print("==============================\n")
@@ -49,12 +74,10 @@ for _, row in df.iterrows():
 
     ticker = yf.Ticker(symbol)
 
-    try:
-        current = ticker.fast_info["last_price"]
-        if current is None:
-            raise ValueError("Preço retornado como None")
-    except Exception as e:
-        print(f"{symbol} | ERRO: preço não disponível ({e})")
+    current = get_current_price(ticker, symbol)
+
+    if current is None:
+        print(f"{symbol} | IGNORADO: sem preço válido\n")
         continue
 
     diff_pct = (current - target) / target * 100
@@ -65,7 +88,7 @@ for _, row in df.iterrows():
 
     # ========= DEBUG DO FILTRO =========
     if current > target:
-        print(f"  → IGNORADO: acima do preço alvo\n")
+        print("  → IGNORADO: acima do preço alvo\n")
         continue
 
     if diff_pct > -MIN_ALERT_PCT:
