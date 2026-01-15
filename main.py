@@ -4,7 +4,7 @@ import requests
 from gmail_sender import send_email
 
 # =========================================
-# CONFIGURAÇÕES GERAIS
+# CONFIGURAÇÕES
 # =========================================
 DEST_EMAIL = "seu_email@gmail.com"
 
@@ -34,25 +34,23 @@ def yahoo_link(symbol):
 # =========================================
 # BUSCA DE PREÇO
 # =========================================
-def get_price_yahoo(symbol):
+def get_price_yahoo_history(symbol):
     try:
         ticker = yf.Ticker(symbol)
+        hist = ticker.history(period="5d")
 
-        price = ticker.fast_info.get("last_price")
-        if price is not None:
-            return float(price), "Yahoo (fast)"
+        if hist.empty:
+            return None, None
 
-        hist = ticker.history(period="1d")
-        if not hist.empty:
-            return float(hist["Close"].iloc[-1]), "Yahoo (history)"
-    except Exception:
-        pass
-
-    return None, None
+        price = hist["Close"].dropna().iloc[-1]
+        return float(price), "Yahoo"
+    except Exception as e:
+        print(f"{symbol} | erro Yahoo: {e}")
+        return None, None
 
 
 def get_price_brapi(symbol):
-    # BRAPI NÃO usa .SA
+    # BRAPI só aceita ticker sem .SA
     br_symbol = symbol.replace(".SA", "")
 
     try:
@@ -71,11 +69,20 @@ def get_price_brapi(symbol):
 
 
 def get_current_price(symbol):
-    price, source = get_price_yahoo(symbol)
-    if price is not None:
-        return price, source
+    # ---------- ATIVOS BRASILEIROS ----------
+    if symbol.upper().endswith(".SA"):
+        price, source = get_price_yahoo_history(symbol)
+        if price is not None:
+            return price, source
 
-    price, source = get_price_brapi(symbol)
+        price, source = get_price_brapi(symbol)
+        if price is not None:
+            return price, source
+
+        return None, "INDISPONÍVEL"
+
+    # ---------- ATIVOS INTERNACIONAIS ----------
+    price, source = get_price_yahoo_history(symbol)
     if price is not None:
         return price, source
 
@@ -102,15 +109,15 @@ for _, row in df.iterrows():
     current, source = get_current_price(symbol)
 
     if current is None:
-        print(f"{symbol} | ERRO: preço indisponível em todas as fontes\n")
+        print(f"{symbol} | ERRO: preço indisponível\n")
         ignored.append((symbol, "Preço indisponível"))
         continue
 
     diff_pct = (current - target) / target * 100
 
     print(
-        f"{symbol} | alvo={target:.2f} | atual={current:.2f} | "
-        f"var={diff_pct:.2f}% | fonte={source}"
+        f"{symbol} | alvo={target:.2f} | atual={current:.2f} "
+        f"| var={diff_pct:.2f}% | fonte={source}"
     )
 
     if current > target:
@@ -144,7 +151,7 @@ if not alerts:
 # =========================================
 # HTML
 # =========================================
-html = f"""
+html = """
 <h2 style="font-family:Arial;">📉 Alerta diário de preços</h2>
 
 <table style="font-family:Arial;border-collapse:collapse;width:100%;max-width:740px;">
