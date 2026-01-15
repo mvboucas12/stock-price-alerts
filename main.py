@@ -8,9 +8,8 @@ from gmail_sender import send_email
 # =========================================
 DEST_EMAIL = "seu_email@gmail.com"
 
-# Filtro inteligente
-MIN_ALERT_PCT = 3      # mínimo % abaixo do alvo
-MAX_ALERT_PCT = 40     # máximo % abaixo do alvo
+MIN_ALERT_PCT = 3
+MAX_ALERT_PCT = 40
 # =========================================
 
 
@@ -33,17 +32,16 @@ def yahoo_link(symbol):
 
 
 # =========================================
-# BUSCA DE PREÇO COM FALLBACK
+# BUSCA DE PREÇO
 # =========================================
-def get_price_yahoo(ticker):
+def get_price_yahoo(symbol):
     try:
+        ticker = yf.Ticker(symbol)
+
         price = ticker.fast_info.get("last_price")
         if price is not None:
             return float(price), "Yahoo (fast)"
-    except Exception:
-        pass
 
-    try:
         hist = ticker.history(period="1d")
         if not hist.empty:
             return float(hist["Close"].iloc[-1]), "Yahoo (history)"
@@ -54,12 +52,15 @@ def get_price_yahoo(ticker):
 
 
 def get_price_brapi(symbol):
+    # BRAPI NÃO usa .SA
+    br_symbol = symbol.replace(".SA", "")
+
     try:
-        url = f"https://brapi.dev/api/quote/{symbol}"
+        url = f"https://brapi.dev/api/quote/{br_symbol}"
         r = requests.get(url, timeout=10)
         data = r.json()
 
-        if "results" in data and len(data["results"]) > 0:
+        if "results" in data and data["results"]:
             price = data["results"][0].get("regularMarketPrice")
             if price is not None:
                 return float(price), "BRAPI"
@@ -70,9 +71,7 @@ def get_price_brapi(symbol):
 
 
 def get_current_price(symbol):
-    ticker = yf.Ticker(symbol)
-
-    price, source = get_price_yahoo(ticker)
+    price, source = get_price_yahoo(symbol)
     if price is not None:
         return price, source
 
@@ -143,14 +142,10 @@ if not alerts:
 
 
 # =========================================
-# HTML DO E-MAIL
+# HTML
 # =========================================
 html = f"""
 <h2 style="font-family:Arial;">📉 Alerta diário de preços</h2>
-
-<p style="font-family:Arial;font-size:13px;color:#555;">
-Ativos dentro do critério de alerta.
-</p>
 
 <table style="font-family:Arial;border-collapse:collapse;width:100%;max-width:740px;">
 <tr style="background-color:#1f2933;color:white;">
@@ -165,7 +160,7 @@ for a in sorted(alerts, key=lambda x: x["diff_pct"]):
     cor, seta = variation_style(a["diff_pct"])
 
     html += f"""
-<tr style="border-bottom:1px solid #e5e7eb;">
+<tr>
 <td><a href="{a['link']}" target="_blank"><b>{a['symbol']}</b></a></td>
 <td align="right">{format_currency(a['target'], a['currency'])}</td>
 <td align="right">{format_currency(a['current'], a['currency'])}</td>
@@ -175,7 +170,6 @@ for a in sorted(alerts, key=lambda x: x["diff_pct"]):
 
 html += "</table>"
 
-# ---------- ATIVOS IGNORADOS ----------
 html += """
 <p style="font-family:Arial;font-size:13px;margin-top:14px;">
 <b>Ativos fora do critério de alerta:</b>
